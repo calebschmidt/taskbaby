@@ -4,6 +4,8 @@ import win32process
 import binascii
 import sys
 
+
+# Warn anytime trying to use this without psutil installed
 try:
     import psutil
 except ImportError:
@@ -12,37 +14,47 @@ except ImportError:
     exit(1)
 
 
+# Aliases for struct field types
 PVOID = LPVOID
-SIZE_T = ctypes.c_size_t
-DWORD_PTR = ctypes.c_ulonglong
+SIZE_T = c_size_t
+DWORD_PTR = c_ulonglong
 
 # Flags that allow us full access to a process
+# https://docs.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 PROCESS_ALL_ACCESS = 0x001F0FFF
 
 
-class MEMORY_BASIC_INFORMATION(ctypes.Structure):
-    """https://msdn.microsoft.com/en-us/library/aa366775"""
+class MEMORY_BASIC_INFORMATION(Structure):
+    '''
+    A structure used to hold return values of the same
+    name from Windows API calls.
+
+    Details can be found at:
+    https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-_memory_basic_information
+    '''
     _fields_ = [
         ('BaseAddress', PVOID),
-        ('AllocationBase',    PVOID),
+        ('AllocationBase', PVOID),
         ('AllocationProtect', DWORD),
         ('RegionSize', SIZE_T),
-        ('State',   DWORD),
+        ('State', DWORD),
         ('Protect', DWORD),
-        ('Type',    DWORD)
+        ('Type', DWORD)
     ]
 
 
+# Pointer type to the above structure
 PMEMORY_BASIC_INFORMATION = ctypes.POINTER(MEMORY_BASIC_INFORMATION)
 
 
-class ProcessTool:
+class TaskBaby:
     '''
     A class housing the main functionality for a
-    stripped process-monitoring tool.
+    stripped-down process-monitoring tool.
     '''
 
     def __init__(self, *args, **kwargs):
+        # Parse out the necessary commands
         self.command = args[0].lower()
         self.kwargs = kwargs
 
@@ -53,33 +65,39 @@ class ProcessTool:
         kernel32 = WinDLL('kernel32')
         self._open_process = kernel32.OpenProcess
         self._read_process_memory = kernel32.ReadProcessMemory
+        self._virtual_query_ex = kernel32.VirtualQueryEx
 
-        # Set argument and return types of the functions we need
-        # so we can call from Python
-        self._open_process.argtypes = DWORD, BOOL, DWORD
+        # Set argument and return types of the functions
+        # we need so we can call from Python
+        # https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocess
+        self._open_process.argtypes = (DWORD, BOOL, DWORD)
         self._open_process.restype = HANDLE
 
-        self._read_process_memory.argtypes = HANDLE, LPVOID, LPVOID, c_size_t, POINTER(c_size_t)
+        # https://docs.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-readprocessmemory
+        self._read_process_memory.argtypes = (HANDLE, LPVOID, LPVOID, c_size_t, POINTER(c_size_t))
         self._read_process_memory.restype = BOOL
+
+        # https://docs.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualqueryex
+        self._virtual_query_ex.restype = SIZE_T
+        self._virtual_query_ex.argtypes = (HANDLE, LPVOID, PMEMORY_BASIC_INFORMATION, SIZE_T)
 
     def run(self):
         '''
-        TODO: Documentation
+        Delegates execution to the proper handler
+        based on the arguments used to intantiate
+        the object.
         '''
         if self.command == '-p':
             self.enumerate_processes()
-        elif self.command == '-t':
-            self.enumerate('t')
-        elif self.command == '-m':
-            self.enumerate('m')
-        elif self.command == '-g':
-            self.enumerate('g')
         elif self.command == '-e':
             self.read_process_memory()
+        else:
+            self._enumerate()
 
     def _process_from_pid(self, pid):
         '''
-        TODO: Documentation
+        Use the passed PID to generate a
+        process object.
         '''
         try:
             process = psutil.Process(pid)
@@ -89,43 +107,46 @@ class ProcessTool:
 
     def enumerate_processes(self):
         '''
-        TODO: Documentation
+        Lists the name and PID for each
+        active process on the system
         '''
         for proc in psutil.process_iter():
             pid = proc.pid
             name = proc.name()
             print('%s  (PID:%s)' % (name, pid))
 
-    def enumerate(self, processor='t'):
+    def _enumerate(self):
         '''
-        TODO: Documentation
+        Calls the correct method based on the specified
+        command for the specified process ID, or for
+        all of them if no PID is specified.
         '''
-        # If not specified, list all threads
+        # If pid not specified, run for all of them
         if self.pid is None:
-            for proc in psutil.process_iter():
-                pid = proc.pid
-
-                # Skip the System Process
-                if pid == 0:
-                    continue
-
-                ps = self._process_from_pid(pid)
-
-                if processor == 't':
-                    self._print_process_threads(ps)
-                elif processor == 'm':
-                    self._print_process_modules(ps)
-                elif processor == 'g':
-                    self._print_process_pages(ps)
+            procs = psutil.process_iter()
+        # Otherwise, just the passed PID
         else:
-            ps = self._process_from_pid(self.pid)
+            procs = [self._process_from_pid(self.pid)]
 
-            if processor == 't':
+        for proc in procs:
+            pid = proc.pid
+
+            # Skip the System Process
+            if pid == 0:
+                continue
+
+            # Get a process object
+            ps = self._process_from_pid(pid)
+
+            # Delegate to the proper method
+            if self.command == '-t':
                 self._print_process_threads(ps)
-            elif processor == 'm':
+            elif self.command == '-m':
                 self._print_process_modules(ps)
-            elif processor == 'g':
+            elif self.command == '-g':
                 self._print_process_pages(ps)
+            else:
+                raise RuntimeError('Invalid command: \'%s\'' % self.command)
 
     def read_process_memory(self, buffer_size=512, permissions_flags=0x10):
         '''
@@ -153,6 +174,7 @@ class ProcessTool:
         '''
         Prints a pretty, readable hexdump of the passed raw binary
         string.
+
         Inspired by the implementation of a similar feature at:
         https://bitbucket.org/techtonik/hexdump/src/default/hexdump.py
         '''
@@ -200,17 +222,22 @@ class ProcessTool:
 
     def _print_process_threads(self, process):
         '''
-        TODO: Documentation
+        Prints the thread IDs of all threads
+        spawned by the specified process.
         '''
         header = 'Threads for %s  (PID: %s)' % (process.name(), process.pid)
         print(header)
         print('=' * len(header))
 
+        # Grab all the thread IDs
         thread_ids = [thread.id for thread in process.threads() if thread.id]
 
         if not len(thread_ids):
+            # If no threads, it means only the main process
+            # thread exists for this process
             print('[No additional threads spawned]\n')
         else:
+            # Print each thread ID
             for tid in thread_ids:
                 print('Thread ID: %s' % tid)
 
@@ -218,32 +245,36 @@ class ProcessTool:
 
     def _print_process_modules(self, process):
         '''
-        TODO: Documentation
+        Prints the names of all modules loaded
+        by the specified process.
         '''
         header = 'Modules for %s  (PID: %s)' % (process.name(), process.pid)
         print(header)
         print('=' * len(header))
 
         try:
+            # For each module loaded by the
+            # process, print its name
             for module in process.memory_maps():
                 print('%s' % module.path.split('\\')[-1])
         except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+            # If we encounter an error, note it
             print('[Unable to access modules for process %s]' % process.pid)
 
         print()
 
     def _print_process_pages(self, process):
         '''
-        TODO: Documentation
+        Prints the addresses of all executable memory pages
+        for the specified process.
         '''
         header = 'Executable memory pages for %s  (PID: %s)' % (process.name(), process.pid)
         print(header)
         print('=' * len(header))
 
-        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-
         # Open process
-        handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, process.pid)
+        handle = self._open_process(PROCESS_ALL_ACCESS, False, process.pid)
+
         if not handle:
             print('[Unable to access memory pages for process %s]' % process.pid)
             return
@@ -251,23 +282,25 @@ class ProcessTool:
         # Get the process modules -- returns page addresses
         modules = win32process.EnumProcessModules(handle)
 
-        # Setup VirtualQueryEx
-        VirtualQueryEx = kernel32.VirtualQueryEx
-        VirtualQueryEx.restype = SIZE_T
-        VirtualQueryEx.argtypes = (HANDLE, LPVOID, PMEMORY_BASIC_INFORMATION, SIZE_T)
-
+        # Initialize the data structure that will hold our result
         mbi = MEMORY_BASIC_INFORMATION()
 
+        # For each memory address returned, get its permissions
         for address in modules:
-            if VirtualQueryEx(handle, address, ctypes.byref(mbi), ctypes.sizeof(mbi)) < ctypes.sizeof(mbi):
-                print('Bad VirtualQueryEx for 0x%x!' % address)
+            if self._virtual_query_ex(handle, address, ctypes.byref(mbi), ctypes.sizeof(mbi)) < ctypes.sizeof(mbi):
+                # If for some reason we can't query
+                # the page, note it and move on
+                print('[Bad VirtualQueryEx for 0x%x!]' % address)
                 continue
 
+            # Get the protection flags for this
+            # piece of allocated memory
             flags = mbi.AllocationProtect
 
-            # Check for executable flags:
+            # Check for executable flags -- flags found at:
             # https://docs.microsoft.com/en-us/windows/win32/memory/memory-protection-constants
             if flags & (0x10 | 0x20 | 0x40 | 0x80):
+                # If executable, print its location
                 print('Page address:', hex(mbi.BaseAddress))
 
         print()
@@ -281,6 +314,7 @@ class ProcessTool:
         MB = KB**2
         GB = MB**2
 
+        # Assign the proper units
         if value > GB:
             return '%.2fGB' % (value / GB)
         elif value > MB:
@@ -291,6 +325,9 @@ class ProcessTool:
 
 
 def usage():
+    '''
+    Prints the usage/help message for TaskBaby.
+    '''
     print('\npython3 taskbaby.py [ -p | -m [PID] | -t [PID] | -g [PID] | -e PID MEM_ADDR]\n')
     print('============================================================================\n')
     print('-h                   Show help -- You\'re here!\n')
@@ -306,22 +343,35 @@ def usage():
 
 
 def main():
+    '''
+    Parses command-line arguments and runs an instance
+    of TaskBaby to execute the given command. Displays
+    a help/usage message if invalid commands or arguments
+    given.
+    '''
+    # All commands have 1-3 components
     wrong_num_args = not 2 <= len(sys.argv) <= 4
 
+    # Immediately display help
+    # if wrong number of args
     if wrong_num_args:
         usage()
         exit(1)
 
+    # Make sure the first arg is
+    # a valid command
     flag = sys.argv[1].lower()
-
     if flag not in '-h -p -m -t -g -e'.split():
         usage()
         exit(1)
 
+    # Give help if requested
     if flag == '-h':
         usage()
         exit(0)
 
+    # Second argument for any command
+    # can only be a PID; validate it
     pid = None
     if len(sys.argv) >= 3:
         pid = sys.argv[2]
@@ -333,6 +383,8 @@ def main():
             exit(1)
         pid = int(pid)
 
+    # Third argument can only be
+    # a memory address; validate it
     memory_address = None
     if len(sys.argv) >= 4:
         memory_address = sys.argv[3]
@@ -345,7 +397,8 @@ def main():
             usage()
             exit(1)
 
-    pt = ProcessTool(flag, pid=pid, memory_address=memory_address)
+    # Pass the args and run the command
+    pt = TaskBaby(flag, pid=pid, memory_address=memory_address)
     pt.run()
 
 
