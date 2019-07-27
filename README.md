@@ -11,8 +11,8 @@ depends on the third-party Python modules `psutil` and `win32com`.
 These can be installed using `pip`:
 
 ```shell
-pip install psutil
-pip install win32com
+pip3 install psutil
+pip3 install win32com
 ```
 
 ## Usage
