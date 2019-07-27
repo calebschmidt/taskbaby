@@ -1,5 +1,6 @@
-from ctypes.wintypes import *
 from ctypes import *
+from ctypes.wintypes import *
+import win32process
 import binascii
 import sys
 
@@ -11,22 +12,28 @@ except ImportError:
     exit(1)
 
 
-pages_permissions_flags = 0x20 | 0x10 | 0x8 | 0x200 | 0x400
+PVOID = LPVOID
+SIZE_T = ctypes.c_size_t
+DWORD_PTR = ctypes.c_ulonglong
+
+# Flags that allow us full access to a process
+PROCESS_ALL_ACCESS = 0x001F0FFF
 
 
-class MemoryBasicInformation(Structure):
-    '''
-    TODO: Documentation
-    '''
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    """https://msdn.microsoft.com/en-us/library/aa366775"""
     _fields_ = [
-        ("BaseAddress", c_void_p),
-        ("AllocationBase", c_void_p),
-        ("AllocationProtect", c_ulong),
-        ("RegionSize", c_ulong),
-        ("State", c_ulong),
-        ("Protect", c_ulong),
-        ("Type", c_ulong)
+        ('BaseAddress', PVOID),
+        ('AllocationBase',    PVOID),
+        ('AllocationProtect', DWORD),
+        ('RegionSize', SIZE_T),
+        ('State',   DWORD),
+        ('Protect', DWORD),
+        ('Type',    DWORD)
     ]
+
+
+PMEMORY_BASIC_INFORMATION = ctypes.POINTER(MEMORY_BASIC_INFORMATION)
 
 
 class ProcessTool:
@@ -119,22 +126,6 @@ class ProcessTool:
                 self._print_process_modules(ps)
             elif processor == 'g':
                 self._print_process_pages(ps)
-
-    def pages_test(self):
-        '''
-        https://stackoverflow.com/questions/2499256/python-ctypes-read-writeprocessmemory-error-5-998-help
-        '''
-        process = self._open_process(pages_permissions_flags, 0, self.pid)
-        basic_memory_info = MemoryBasicInformation()
-
-        windll.kernel32.SetLastError(10000)
-        result = windll.kernel32.VirtualQueryEx(process, self.memory_address, byref(basic_memory_info), byref(basic_memory_info))
-
-        if result:
-            print(dir(basic_memory_info))
-            print(basic_memory_info)
-        else:
-            print(windll.kernel32.GetLastError())
 
     def read_process_memory(self, buffer_size=512, permissions_flags=0x10):
         '''
@@ -244,18 +235,40 @@ class ProcessTool:
     def _print_process_pages(self, process):
         '''
         TODO: Documentation
-        https://stackoverflow.com/questions/2499256/python-ctypes-read-writeprocessmemory-error-5-998-help
         '''
-        header = 'Pages for %s  (PID: %s)' % (process.name(), process.pid)
+        header = 'Executable memory pages for %s  (PID: %s)' % (process.name(), process.pid)
         print(header)
         print('=' * len(header))
 
-        try:
-            for key, value in process.memory_info()._asdict().items():
-                formatted_value = self._format_value(value)
-                print('%s: %s' % (key.upper(), formatted_value))
-        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+
+        # Open process
+        handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, process.pid)
+        if not handle:
             print('[Unable to access memory pages for process %s]' % process.pid)
+            return
+
+        # Get the process modules -- returns page addresses
+        modules = win32process.EnumProcessModules(handle)
+
+        # Setup VirtualQueryEx
+        VirtualQueryEx = kernel32.VirtualQueryEx
+        VirtualQueryEx.restype = SIZE_T
+        VirtualQueryEx.argtypes = (HANDLE, LPVOID, PMEMORY_BASIC_INFORMATION, SIZE_T)
+
+        mbi = MEMORY_BASIC_INFORMATION()
+
+        for address in modules:
+            if VirtualQueryEx(handle, address, ctypes.byref(mbi), ctypes.sizeof(mbi)) < ctypes.sizeof(mbi):
+                print('Bad VirtualQueryEx for 0x%x!' % address)
+                continue
+
+            flags = mbi.AllocationProtect
+
+            # Check for executable flags:
+            # https://docs.microsoft.com/en-us/windows/win32/memory/memory-protection-constants
+            if flags & (0x10 | 0x20 | 0x40 | 0x80):
+                print('Page address:', hex(mbi.BaseAddress))
 
         print()
 
@@ -286,7 +299,7 @@ def usage():
     print('                     or a specified process.\n')
     print('-t [PID]             List threads for all running processes or a')
     print('                     specified process.\n')
-    print('-g [PID]             List memory page stats for all running')
+    print('-g [PID]             List executable memory pages for all running')
     print('                     processes or a specified process.\n')
     print('-e PID MEM_ADDR      Print a hexdump of memory at the specified')
     print('                     address for the specified process.\n')
