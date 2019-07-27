@@ -267,6 +267,12 @@ class TaskBaby:
         '''
         Prints the addresses of all executable memory pages
         for the specified process.
+
+        Inspired by similar examples at:
+        https://code.activestate.com/lists/python-tutor/111100/
+        and discussion of building a Windows debugger in:
+        Gray Hat Python by Justin Seitz (2009)
+        https://nostarch.com/ghpython.htm
         '''
         header = 'Executable memory pages for %s  (PID: %s)' % (process.name(), process.pid)
         print(header)
