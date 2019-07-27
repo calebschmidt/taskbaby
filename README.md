@@ -7,11 +7,12 @@ TaskBaby is a stripped-down process monitoring tool.
 TaskBaby is a Python script built and tested in Python 3.6 on
 Windows 10. A different version of Python or Windows may
 affect the functionality of the program. _Caveat executor_. It
-depends on a third-party Python module named `psutil`. This can
-be installed using `pip`:
+depends on the third-party Python modules `psutil` and `win32com`.
+These can be installed using `pip`:
 
 ```shell
 pip install psutil
+pip install win32com
 ```
 
 ## Usage
@@ -19,7 +20,7 @@ pip install psutil
 TaskBaby is run using Python 3:
 
 ```shell
-python3 taskbaby.py [ -p | -m [PID] | -t [PID] | -g [PID] | -e PID MEM_ADDR ]
+python3 taskbaby.py [ -p | -m [PID] | -t [PID] | -g [PID] | -e PID MEM_ADDR | -h ]
 ```
 
 #### Options 
