@@ -32,7 +32,7 @@ up turns out to be the first challenge faced.
 
 ## Invite
 
-Navigating to hackthebox.eu, I see the login link in the top right corner.
+Navigating to `hackthebox.eu`, I see the login link in the top right corner.
 Seeing no other link labelled "sign up" or anything similar, I assume that
 on the login page will be somewhere where new users can register. I assumed
 wrong. I was presented with the page below, welcoming me and asking for an
@@ -213,38 +213,80 @@ be the case in the real-world, open-ended computer security and defense
 problems we may face day to day.
 
 
-###### Success & Reflection
-
-
 ## Took the Byte
 
-download, unzip, cat
-binary, so hexdump
-not much to go on. fire up cyberchef.
-none of the normal stuff makes sense. this is binary, so we should start trying binary operations.
-Brute force XOR. Scroll. Garbage. Skip, notice password.txt at the end. Google string.
-
-###### Success & Reflection
-
-## Easy Phish
-
-The challenge state that the company secure-startup.com is getting convincing phishing emails. Going to the site we are presented with a registration page. At first I thought I may have had this challenge incorrect. After looking on the HTB forums, I confirmed that this is indeed the correct site. At this point I decided to try the same tricks I used for the invite code. However, inspecting the page didn't reveal anything interesting or suspicious. A dead end. I then began considering alternatives. Maybe the registration information for this site reveals something useful for the attacker. With that in mind, I ran a WHOIS query on the domain.
-
-This was also uninteresting. The domain is registered to HTB (confirming that yes, this is the right site). But the contact info all points to GoDaddy. I can see the name servers. Interestingly there are no mail servers listed. I wasn't sure if that is normal or not. But, on further reflection, if this is a phishing related challenge, it makes sense that this is somehow related to the domain's mail server(s). My next step was to simply Google for some Kali-based tools that can enumerate a domain. After looking at some, I settled on trying dnsrecon.
-
-Running secure-startup.com through dnsrecon I immediately saw a flag. Or at least part of a flag. I tried entering the portion of the flag shown, but it wasn't acceptable. Seems I was still missing something.
-
-The flag itself is cryptic, and I didn't know what it meant. Time for more Googling. That led me down the trail of investigating what SPF is and how it relates to this challenge. SPF stands for Sender Policy Framework, and defines which servers can send mail on behalf of a domain. This sounds promising.
-https://postmarkapp.com/guides/spf
-
-?all meaning
-https://wiki.zimbra.com/wiki/Best_Practices_on_Email_Protection:_SPF,_DKIM_and_DMARC
-
-Looking at other mail possibilities.
-
-Ran dig but only got same information.
+For my final challenge, I settled on a forensics challenge. Given the material
+that has been covered over the past several weeks, this seemed like a
+natural place to try out some of the forensics skills that I had gained.
+Though I dodn't know it at the outset, this challenge ended up being very
+similar to those above, but with a slight twist.
 
 
-## Lernaean
+As before, I began the challenge by downloading and unzipping the file for
+this challenge. Unlike the previous challenge, the prompt was not particularly
+helpful (though it made much more sense in retrospectr, after the completion
+of the challenge).
 
-TODO
+
+The file itself appeared to be a binary, which given the little information
+I had to go on from the prompt made sense. Therefore, my first step was to
+inspect a hexdump of the contents. Examining the hexdump, there did not seem
+to be a whole lot for me to go on. I didn't spit any immediately obvious
+patterns.
+
+
+As there was not much to go on, I next turned to my trusty friend Cyber Chef.
+I tried (without much aim or guidance) a few of the various decoding options,
+but nothing seemed to make much sense. I realized that I was once again
+thrashing without a definite plan, so I paused to consider a better way
+forward on this challenge.
+
+
+After reflecting on the challenge a bit, it struck me that if this is indeed
+binary, then binary operations are the ones I should be investigating. Once
+again, Cyber Chef came to the rescue. It hosts a number of common binary
+operations that can be applied to strings and files (with a convenient drag
+and drop interface). I then began purposefully applying various binary
+operations to the provided file.
+
+
+The first binary operation listed in CyberChef is XOR. This makes sense, as
+the XOR operation is often used in encryption schemes. Immediately this got
+my mind working and sparked some hope in me that this was the right tack to
+take. So I started XORing various keys against the data. But once again, as
+in when I suspected a Vigenere cipher was being used in the Bank Heist
+challenge, I realized that simply guessing keys was not a practical way to
+go about this. Conveniently, the very next operation listed under XOR in
+CyberChef is XOR Brute Force. That sounds exactly like what I need.
+
+
+Loading up the XOR Brute Force operation, I see that I still have to input
+a key length. However, I decided to leave it set to the defaults and work
+the length up, depending on how long it took to process. For a key length
+of 1 (a single byte) there are 255 possible keys. CyberChef enumerates all
+of these and prints them out. I began scanning the output, and most of it
+appeared to simply be garbage values. However, the very last entry (for
+a key of `ff`) produced something interesting.
+
+
+While this still appears to be mostly incomprehensible, the value
+`password.txt` is clearly visible. At this point I was stumped for a bit.
+It seemed that I was on the right path, but I wasn't sure what the next step
+should be. It was ony after Googling portions of this string that I had a
+breakthrough. It turns out that the initial `PK..` represents the so-called
+"magic bytes" indicating a zip file. Excellent! Adding unzip to the
+recipe in CyberChef we get the flag. Success!
+
+
+## Conclusion
+
+
+Overall I found the challenges on Hack the Box to be rather engaging and
+interesting. As I mentioned at the outset, I was surprised at how my
+challenges ended up focusing primarily on encoding and decryption. For this
+experience alone I found the challenges worthwhile; I would likely have
+never forced myself to try to decrypt or decode messages of these kinds.
+Additionally, it feels somewhat empowering. Though my completion of the
+three challenges above only puts me at, according to Hack the Box, 16.6% of
+the way to "Script Kiddie", I feel much more open to tackling such
+security-related challenges in the future.
